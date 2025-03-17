@@ -12,15 +12,16 @@ const {
   fileExists,
 } = require("../utils");
 
+// =========== PROXY IMPORTS & GLOBALS ===========
 const { HttpsProxyAgent } = require("https-proxy-agent");
 const { HttpProxyAgent } = require("http-proxy-agent");
 
 const PROXY_FILE = "proxies.txt";
-
 let allProxies = [];
 let currentProxyIndex = 0;
 let persistentAgent = null;
 
+// Đọc danh sách proxy từ file proxies.txt
 function readAllProxiesFromFile() {
   try {
     if (fs.existsSync(PROXY_FILE)) {
@@ -70,6 +71,7 @@ function switchToNextProxy() {
   } catch (err) {
     log(`Switched to proxy: ${proxyUrl}`);
   }
+ 
   persistentAgent = null;
   return proxyUrl;
 }
@@ -78,28 +80,14 @@ function getProxyAgent(targetUrl) {
   if (persistentAgent) return persistentAgent;
   const proxyUrl = getCurrentProxy();
   if (!proxyUrl) return null;
-  persistentAgent =
-    targetUrl.startsWith("https")
-      ? new HttpsProxyAgent(proxyUrl)
-      : new HttpProxyAgent(proxyUrl);
+  if (targetUrl.startsWith("https")) {
+    persistentAgent = new HttpsProxyAgent(proxyUrl);
+  } else {
+    persistentAgent = new HttpProxyAgent(proxyUrl);
+  }
   return persistentAgent;
 }
-
-async function checkCurrentIP() {
-  const checkIpUrl = "https://api.ipify.org?format=json";
-  const agent = getProxyAgent(checkIpUrl);
-  const axiosConfig = { timeout: 10000 };
-  if (agent) {
-    axiosConfig.httpsAgent = agent;
-  }
-  try {
-    const response = await axios.get(checkIpUrl, axiosConfig);
-    return response.data.ip;
-  } catch (err) {
-    console.error("Error checking IP:", err.message);
-    return null;
-  }
-}
+// =========== END PROXY LOGIC ===========
 
 const SESSION_TOKEN_PATH = path.join(process.cwd(), "session-token.key");
 
@@ -134,17 +122,115 @@ function readAllSessionTokensFromFile() {
           .split("\n")
           .map((line) => line.trim())
           .filter((line) => line.length > 0);
+
         logToFile("Read session tokens from file", {
           tokenCount: tokens.length,
           tokenPreview: tokens.map((t) => t.substring(0, 10) + "..."),
         });
+
         return tokens;
       }
     }
     return [];
   } catch (error) {
-    logToFile("Error reading session tokens from file", { error: error.message });
+    logToFile("Error reading session tokens from file", {
+      error: error.message,
+    });
     return [];
+  }
+}
+
+async function verifyToken(token) {
+  try {
+    log("Verifying token validity...", "info");
+    logToFile("Verifying token validity");
+
+    const headers = {
+      ...config.DEFAULT_HEADERS,
+      "X-Session-Token": token,
+    };
+
+    const verifyRequest = async () => {
+      logApiRequest("GET", `${config.BASE_URL}/me`, null, headers);
+
+      const agent = getProxyAgent(config.BASE_URL);
+      const axiosConfig = {
+        headers,
+        timeout: 10000,
+      };
+      if (agent) {
+        if (config.BASE_URL.startsWith("https")) {
+          axiosConfig.httpsAgent = agent;
+        } else {
+          axiosConfig.httpAgent = agent;
+        }
+      }
+
+      const response = await axios.get(`${config.BASE_URL}/me`, axiosConfig);
+      logApiResponse("/me", response.data, response.status, response.headers);
+      return response.status === 200;
+    };
+
+    return await executeWithRetry(verifyRequest, "Token verification");
+  } catch (error) {
+    log(`Token verification failed: ${error.message}`, "warning");
+    logToFile("Token verification failed", { error: error.message });
+    return false;
+  }
+}
+
+async function verifyAndCleanupTokens() {
+  try {
+    log("Verifying and cleaning up tokens...", "info");
+    logToFile("Starting token verification and cleanup");
+
+    const tokens = readAllSessionTokensFromFile();
+
+    if (tokens.length === 0) {
+      log("No tokens found to verify", "warning");
+      return 0;
+    }
+
+    log(`Verifying ${tokens.length} tokens...`, "info");
+
+    const validTokens = [];
+
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      log(`Verifying token ${i + 1}/${tokens.length}...`, "info");
+
+      const isValid = await verifyToken(token);
+
+      if (isValid) {
+        validTokens.push(token);
+        log(`Token ${i + 1}/${tokens.length} is valid`, "success");
+      } else {
+        log(`Token ${i + 1}/${tokens.length} is invalid or expired`, "warning");
+      }
+    }
+
+    fs.writeFileSync(
+      SESSION_TOKEN_PATH,
+      validTokens.join("\n") + (validTokens.length > 0 ? "\n" : "")
+    );
+
+    log(
+      `Token verification complete. ${validTokens.length}/${tokens.length} tokens are valid`,
+      validTokens.length > 0 ? "success" : "warning"
+    );
+    logToFile("Token verification and cleanup completed", {
+      totalTokens: tokens.length,
+      validTokens: validTokens.length,
+    });
+
+    allTokens = validTokens;
+    currentTokenIndex = 0;
+
+    return validTokens.length;
+  } catch (error) {
+    log(`Error during token verification: ${error.message}`, "error");
+    logToFile("Token verification failed", { error: error.message });
+    return 0;
   }
 }
 
@@ -153,12 +239,15 @@ function getCurrentSessionToken() {
     allTokens = readAllSessionTokensFromFile();
     currentTokenIndex = 0;
   }
+
   if (allTokens.length === 0) {
     return null;
   }
+
   if (currentTokenIndex >= allTokens.length) {
     currentTokenIndex = 0;
   }
+
   return allTokens[currentTokenIndex];
 }
 
@@ -166,18 +255,26 @@ function switchToNextToken() {
   if (allTokens.length === 0) {
     allTokens = readAllSessionTokensFromFile();
   }
+
   if (allTokens.length === 0) {
     return null;
   }
+
   currentTokenIndex = (currentTokenIndex + 1) % allTokens.length;
   sessionToken = allTokens[currentTokenIndex];
-  log(`Switched to account ${currentTokenIndex + 1}/${allTokens.length}`, "info");
-  logToFile("Switched to next token", {
+
+  log(
+    `Switched to account ${currentTokenIndex + 1}/${allTokens.length}`,
+    "info"
+  );
+  logToFile(`Switched to next token`, {
     newIndex: currentTokenIndex,
     totalTokens: allTokens.length,
     tokenPreview: sessionToken.substring(0, 10) + "...",
   });
+
   cachedUserInfo = null;
+
   return sessionToken;
 }
 
@@ -185,7 +282,12 @@ function getAuthHeaders(headers = {}) {
   if (!sessionToken) {
     throw new Error("Not authenticated. Please login first.");
   }
-  return { ...config.DEFAULT_HEADERS, ...headers, "X-Session-Token": sessionToken };
+
+  return {
+    ...config.DEFAULT_HEADERS,
+    ...headers,
+    "X-Session-Token": sessionToken,
+  };
 }
 
 async function executeWithRetry(requestFn, requestName, retryCount = 0) {
@@ -197,31 +299,49 @@ async function executeWithRetry(requestFn, requestName, retryCount = 0) {
       error.message.includes("network") ||
       error.message.includes("timeout") ||
       error.message.includes("ECONNREFUSED");
+
     const isServerError = error.response && error.response.status >= 500;
+
     const isAuthError =
       error.response &&
       (error.response.status === 401 || error.response.status === 403);
+
     if (isAuthError && allTokens.length > 1) {
       logToFile(
         `Auth error with current token, switching to next token`,
-        { error: error.message, previousTokenIndex: currentTokenIndex },
+        {
+          error: error.message,
+          previousTokenIndex: currentTokenIndex,
+        },
         false
       );
+
       switchToNextToken();
+
       return executeWithRetry(requestFn, `${requestName} (with new token)`, 0);
     }
+
     if ((isNetworkError || isServerError) && retryCount < MAX_RETRIES) {
       switchToNextProxy();
       const nextRetryCount = retryCount + 1;
       const delay = RETRY_DELAY_MS * Math.pow(RETRY_MULTIPLIER, retryCount);
+
       logToFile(
         `${requestName} failed (${error.message}). Retrying (${nextRetryCount}/${MAX_RETRIES}) in ${delay / 1000}s...`,
-        { error: error.message, retry: nextRetryCount, maxRetries: MAX_RETRIES, delayMs: delay },
+        {
+          error: error.message,
+          retry: nextRetryCount,
+          maxRetries: MAX_RETRIES,
+          delayMs: delay,
+        },
         false
       );
+
       await new Promise((resolve) => setTimeout(resolve, delay));
+
       return executeWithRetry(requestFn, requestName, nextRetryCount);
     }
+
     throw error;
   }
 }
@@ -230,6 +350,7 @@ async function login(switchToken = false) {
   try {
     log("Starting login with session token...", "info");
     logToFile("Starting login with session token");
+
     if (switchToken || !sessionToken) {
       if (switchToken) {
         switchToNextToken();
@@ -237,18 +358,24 @@ async function login(switchToken = false) {
         sessionToken = getCurrentSessionToken();
       }
     }
+
     if (!sessionToken) {
-      const error = new Error("No session token found. Please add session-token.key file with at least one token.");
+      const error = new Error(
+        "No session token found. Please add session-token.key file with at least one token."
+      );
       log(error.message, "error");
       logToFile("Login failed - no token file or empty file");
       throw error;
     }
+
     log("Session token loaded", "info");
     log("Validating session token...", "info");
+
     const validateRequest = async () => {
       log("Testing session token validity...", "info");
+
       const agent = getProxyAgent(config.BASE_URL);
-      const axiosConfig = { headers: getAuthHeaders(), timeout: 10000 };
+      const axiosConfig = { headers: getAuthHeaders() };
       if (agent) {
         if (config.BASE_URL.startsWith("https")) {
           axiosConfig.httpsAgent = agent;
@@ -256,22 +383,29 @@ async function login(switchToken = false) {
           axiosConfig.httpAgent = agent;
         }
       }
+
       const response = await axios.get(`${config.BASE_URL}/me`, axiosConfig);
       logApiResponse("/me", response.data, response.status, response.headers);
       cachedUserInfo = response.data;
       return response.data;
     };
+
     try {
       await executeWithRetry(validateRequest, "Token validation");
-      const currentIp = await checkCurrentIP();
-      log(`Current public IP: ${currentIp}`, "info");
-      log(`Session token is valid! Account ${currentTokenIndex + 1}/${allTokens.length}`, "success");
+
+      log(
+        `Session token is valid! Account ${currentTokenIndex + 1}/${
+          allTokens.length
+        }`,
+        "success"
+      );
       logToFile("Login successful with session token", {
         userId: cachedUserInfo.user_id,
         authProvider: cachedUserInfo.auth_provider,
         tokenIndex: currentTokenIndex,
         totalTokens: allTokens.length,
       });
+
       return sessionToken;
     } catch (error) {
       if (allTokens.length > 1) {
@@ -285,6 +419,7 @@ async function login(switchToken = false) {
     const errorMsg = `Login failed: ${error.message}`;
     log(errorMsg, "error");
     logToFile("Login failed", { error: error.message });
+
     sessionToken = null;
     throw error;
   }
@@ -295,25 +430,34 @@ async function getUserInfo(useCache = false) {
     logToFile("Returning user info from cache");
     return cachedUserInfo;
   }
+
   try {
     log("Getting user information...", "info");
     logToFile("Getting user information");
+
     const headers = getAuthHeaders();
+
     const getUserRequest = async () => {
       logApiRequest("GET", `${config.BASE_URL}/me`, null, headers);
+
       const agent = getProxyAgent(config.BASE_URL);
-      const axiosConfig = { headers: headers, timeout: 10000 };
+      const requestConfig = {
+        headers,
+        timeout: 10000,
+      };
       if (agent) {
         if (config.BASE_URL.startsWith("https")) {
-          axiosConfig.httpsAgent = agent;
+          requestConfig.httpsAgent = agent;
         } else {
-          axiosConfig.httpAgent = agent;
+          requestConfig.httpAgent = agent;
         }
       }
-      const response = await axios.get(`${config.BASE_URL}/me`, axiosConfig);
+
+      const response = await axios.get(`${config.BASE_URL}/me`, requestConfig);
       logApiResponse("/me", response.data, response.status, response.headers);
       return response.data;
     };
+
     const userData = await executeWithRetry(getUserRequest, "Get user info");
     log("User info retrieved successfully", "success");
     cachedUserInfo = userData;
@@ -330,10 +474,17 @@ async function makeApiRequest(method, endpoint, data = null, additionalHeaders =
   try {
     const headers = getAuthHeaders(additionalHeaders);
     const url = `${config.BASE_URL}${endpoint}`;
+
     const apiRequest = async () => {
       logApiRequest(method, url, data, headers);
+
       const agent = getProxyAgent(url);
-      const requestConfig = { method, url, headers, timeout: 10000 };
+      const requestConfig = {
+        method,
+        url,
+        headers,
+        timeout: 10000,
+      };
       if (agent) {
         if (url.startsWith("https")) {
           requestConfig.httpsAgent = agent;
@@ -344,10 +495,12 @@ async function makeApiRequest(method, endpoint, data = null, additionalHeaders =
       if (data) {
         requestConfig.data = data;
       }
+
       const response = await axios(requestConfig);
       logApiResponse(endpoint, response.data, response.status, response.headers);
       return response.data;
     };
+
     return await executeWithRetry(apiRequest, `${method} ${endpoint}`);
   } catch (error) {
     const errorMsg = `API request failed (${method} ${endpoint}): ${error.message}`;
@@ -358,15 +511,16 @@ async function makeApiRequest(method, endpoint, data = null, additionalHeaders =
 }
 
 module.exports = {
+  verifyToken,
+  verifyAndCleanupTokens,
   login,
   getUserInfo,
   getSessionToken,
   getAuthHeaders,
-  getCurrentSessionToken: getCurrentSessionToken,
+  getCurrentSessionToken,
   getTokenInfo,
   switchToNextToken,
   makeApiRequest,
   executeWithRetry,
   readAllSessionTokensFromFile,
-  checkCurrentIP,
 };

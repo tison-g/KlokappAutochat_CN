@@ -1,3 +1,5 @@
+const dotenv = require("dotenv");
+const { authenticateAllWallets } = require("./src/api/signin");
 const {
   initDashboard,
   registerKeyHandler,
@@ -22,6 +24,8 @@ const {
   backupLogFile,
 } = require("./src/utils");
 
+dotenv.config();
+
 async function main() {
   try {
     checkLogSize();
@@ -32,35 +36,45 @@ async function main() {
     log("Press S to start, P to pause, R to resume, H for help", "info");
     logToFile("KlokApp Chat Automation started");
 
-    const tokens = auth.readAllSessionTokensFromFile();
-    if (tokens.length === 0) {
-      log(
-        "No session tokens found. Please add session-token.key file.",
-        "error"
-      );
-      updateStatus("Missing session-token.key file", "error");
-    } else if (tokens.length === 1) {
-      log(
-        "Session token file found with 1 account! Ready for login.",
-        "success"
-      );
+    const validTokenCount = await auth.verifyAndCleanupTokens();
+    
+    if (validTokenCount === 0) {
+      log("No valid session tokens found. Attempting to authenticate...", "info");
+      updateStatus("Authenticating...", "info");
+      render();
+      
+      const privateKeys = process.env.PRIVATE_KEYS ? process.env.PRIVATE_KEYS.split(",") : [];
+      if (privateKeys.length === 0) {
+        log("No private keys found in .env file.", "error");
+        updateStatus("Missing private keys in .env file", "error");
+      } else {
+        log(`Found ${privateKeys.length} private keys. Authenticating...`, "info");
+        
+        await authenticateAllWallets(privateKeys);
+        
+        const tokens = auth.readAllSessionTokensFromFile();
+        
+        if (tokens.length === 0) {
+          log("Authentication failed. No valid tokens received.", "error");
+          updateStatus("Authentication failed", "error");
+        } else {
+          log(`Authentication successful! ${tokens.length} accounts ready.`, "success");
+          updateStatus(`${tokens.length} accounts ready. Press S to start`, "success");
+        }
+      }
+    } else if (validTokenCount === 1) {
+      log("One valid session token found! Ready for login.", "success");
       updateStatus("Session token ready. Press S to start", "success");
     } else {
-      log(
-        `Session token file found with ${tokens.length} accounts! Ready for login.`,
-        "success"
-      );
-      updateStatus(
-        `${tokens.length} accounts ready. Press S to start`,
-        "success"
-      );
+      log(`${validTokenCount} valid session tokens found! Ready for login.`, "success");
+      updateStatus(`${validTokenCount} accounts ready. Press S to start`, "success");
     }
 
     render();
 
     await initAutomation();
 
-    registerKeyHandler("s", () => {
+    registerKeyHandler("s", async () => {
       if (!getRunningState()) {
         const tokens = auth.readAllSessionTokensFromFile();
         if (tokens.length === 0) {
@@ -69,6 +83,14 @@ async function main() {
             "error"
           );
           updateStatus("Missing session-token.key", "error");
+          render();
+          return;
+        }
+
+        const isValid = await auth.verifyToken(tokens[0]);
+        if (!isValid) {
+          log("Session tokens are expired. Re-authentication required.", "error");
+          updateStatus("Expired tokens. Press 'A' to re-authenticate", "error");
           render();
           return;
         }
@@ -106,11 +128,6 @@ async function main() {
 
     registerKeyHandler("a", async () => {
       const tokenInfo = auth.getTokenInfo();
-      if (!tokenInfo.hasMultipleTokens) {
-        log("Only one account available, cannot switch", "warning");
-        return;
-      }
-
       if (getRunningState()) {
         log("Manually switching account...", "info");
         logToFile("Manual account switch initiated");
@@ -122,7 +139,39 @@ async function main() {
           log("Failed to switch account", "error");
         }
       } else {
-        log("Automation must be running to switch accounts", "warning");
+        if (tokenInfo.hasMultipleTokens) {
+          log("Only one account available, cannot switch", "warning");
+          return;
+        }
+
+        log("Re-authenticating accounts...", "info");
+        logToFile("Re-authentication initiated");
+        updateStatus("Re-authenticating...", "info");
+        render();
+
+        const privateKeys = process.env.PRIVATE_KEYS
+          ? process.env.PRIVATE_KEYS.split(",")
+          : [];
+        if (privateKeys.length === 0) {
+          log("No private keys found in .env file.", "error");
+          updateStatus("Missing private keys in .env file", "error");
+        } else {
+          await authenticateAllWallets(privateKeys);
+          const tokens = auth.readAllSessionTokensFromFile();
+          if (tokens.length > 0) {
+            log(
+              `Re-authentication successful! ${tokens.length} accounts ready.`,
+              "success"
+            );
+            updateStatus(
+              `${tokens.length} accounts ready. Press S to start`,
+              "success"
+            );
+          } else {
+            log("Re-authentication failed. No valid tokens received.", "error");
+            updateStatus("Re-authentication failed", "error");
+          }
+        }
       }
     });
 
@@ -199,10 +248,7 @@ async function main() {
       log("S - Start automation (requires at least one session token)", "info");
       log("P - Pause automation", "info");
       log("R - Resume automation", "info");
-      log(
-        "A - Switch to next account (when multiple accounts available)",
-        "info"
-      );
+      log("A - When running: Switch to next account; When stopped: Re-authenticate", "info");
       log("L - Clear log file and make backup", "info");
       log("I - Show file and account information", "info");
       log("H - Show this help", "info");
