@@ -21,7 +21,6 @@ let allProxies = [];
 let currentProxyIndex = 0;
 let persistentAgent = null;
 
-// Đọc danh sách proxy từ file proxies.txt
 function readAllProxiesFromFile() {
   try {
     if (fs.existsSync(PROXY_FILE)) {

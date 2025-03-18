@@ -1,4 +1,5 @@
-const dotenv = require("dotenv");
+const fs = require("fs");
+const path = require("path");
 const { authenticateAllWallets } = require("./src/api/signin");
 const {
   initDashboard,
@@ -24,7 +25,15 @@ const {
   backupLogFile,
 } = require("./src/utils");
 
-dotenv.config();
+function readPrivateKeysFromFile(filePath) {
+  const absolutePath = path.resolve(filePath);
+  if (!fs.existsSync(absolutePath)) {
+    console.error(`File ${absolutePath} not exits.`);
+    return [];
+  }
+  const data = fs.readFileSync(absolutePath, "utf8");
+  return data.split(/\r?\n/).filter(line => line.trim() !== "");
+}
 
 async function main() {
   try {
@@ -37,23 +46,23 @@ async function main() {
     logToFile("KlokApp Chat Automation started");
 
     const validTokenCount = await auth.verifyAndCleanupTokens();
-    
+
     if (validTokenCount === 0) {
       log("No valid session tokens found. Attempting to authenticate...", "info");
       updateStatus("Authenticating...", "info");
       render();
-      
-      const privateKeys = process.env.PRIVATE_KEYS ? process.env.PRIVATE_KEYS.split(",") : [];
+
+      const privateKeys = readPrivateKeysFromFile("priv.txt");
       if (privateKeys.length === 0) {
-        log("No private keys found in .env file.", "error");
-        updateStatus("Missing private keys in .env file", "error");
+        log("No private keys found in priv.txt file.", "error");
+        updateStatus("Missing private keys in priv.txt file", "error");
       } else {
         log(`Found ${privateKeys.length} private keys. Authenticating...`, "info");
-        
+
         await authenticateAllWallets(privateKeys);
-        
+
         const tokens = auth.readAllSessionTokensFromFile();
-        
+
         if (tokens.length === 0) {
           log("Authentication failed. No valid tokens received.", "error");
           updateStatus("Authentication failed", "error");
@@ -149,12 +158,10 @@ async function main() {
         updateStatus("Re-authenticating...", "info");
         render();
 
-        const privateKeys = process.env.PRIVATE_KEYS
-          ? process.env.PRIVATE_KEYS.split(",")
-          : [];
+        const privateKeys = readPrivateKeysFromFile("priv.txt");
         if (privateKeys.length === 0) {
-          log("No private keys found in .env file.", "error");
-          updateStatus("Missing private keys in .env file", "error");
+          log("No private keys found in priv.txt file.", "error");
+          updateStatus("Missing private keys in priv.txt file", "error");
         } else {
           await authenticateAllWallets(privateKeys);
           const tokens = auth.readAllSessionTokensFromFile();
