@@ -1,4 +1,5 @@
 module.exports = {
+  THREADS: 20,
   BASE_URL: "https://api1-pp.klokapp.ai/v1",
 
   GROQ_API_KEY_PATH: "./groq-api.key",

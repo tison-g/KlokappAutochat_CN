@@ -11,6 +11,7 @@ const {
   readFile,
   fileExists,
 } = require("../utils");
+const pLimit = require("p-limit");
 
 // =========== PROXY IMPORTS & GLOBALS ===========
 const { HttpsProxyAgent } = require("https-proxy-agent");
@@ -192,22 +193,28 @@ async function verifyAndCleanupTokens() {
 
     log(`Verifying ${tokens.length} tokens...`, "info");
 
-    const validTokens = [];
+    // Khởi tạo p-limit để giới hạn số lượng luồng song song (có thể điều chỉnh số luồng này)
+    const limit = pLimit(config.THREADS || 10); // Chạy tối đa 5 luồng song song
 
-    for (let i = 0; i < tokens.length; i++) {
-      const token = tokens[i];
-      log(`Verifying token ${i + 1}/${tokens.length}...`, "info");
+    // Tạo các promise để kiểm tra từng token song song
+    const promises = tokens.map((token, index) =>
+      limit(async () => {
+        log(`Verifying token ${index + 1}/${tokens.length}...`, "info");
 
-      const isValid = await verifyToken(token);
+        const isValid = await verifyToken(token);
 
-      if (isValid) {
-        validTokens.push(token);
-        log(`Token ${i + 1}/${tokens.length} is valid`, "success");
-      } else {
-        log(`Token ${i + 1}/${tokens.length} is invalid or expired`, "warning");
-      }
-    }
+        if (isValid) {
+          log(`Token ${index + 1}/${tokens.length} is valid`, "success");
+        } else {
+          log(`Token ${index + 1}/${tokens.length} is invalid or expired`, "warning");
+        }
+      })
+    );
 
+    // Chờ đợi tất cả các promise hoàn thành và lọc ra các token hợp lệ
+    const validTokens = (await Promise.all(promises)).filter(Boolean); // Loại bỏ các null (token không hợp lệ)
+
+    // Ghi lại các token hợp lệ vào file
     fs.writeFileSync(
       SESSION_TOKEN_PATH,
       validTokens.join("\n") + (validTokens.length > 0 ? "\n" : "")

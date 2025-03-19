@@ -24,6 +24,7 @@
     "ethers": "^6.13.5",
     "groq-sdk": "^0.15.0",
     "http-proxy-agent": "^5.0.0",
-    "https-proxy-agent": "^5.0.1"
+    "https-proxy-agent": "^5.0.1",
+    "p-limit": "^2.3.0"
   }
 }

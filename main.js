@@ -35,18 +35,27 @@ function readPrivateKeysFromFile(filePath) {
   return data.split(/\r?\n/).filter(line => line.trim() !== "");
 }
 
+function clearSessionTokenFile() {
+  const tokenPath = path.join(process.cwd(), "session-token.key");
+  
+  fs.writeFileSync(tokenPath, "", "utf8");
+  console.log("[INFO] session-token.key has been cleared.");
+}
+
 async function main() {
   try {
     checkLogSize();
 
     initDashboard();
 
+    // clearSessionTokenFile();
+
     log("Welcome to KlokApp Chat Automation", "info");
     log("Press S to start, P to pause, R to resume, H for help", "info");
     logToFile("KlokApp Chat Automation started");
 
     const validTokenCount = await auth.verifyAndCleanupTokens();
-
+    log(`Token Length: ${validTokenCount}`)
     if (validTokenCount === 0) {
       log("No valid session tokens found. Attempting to authenticate...", "info");
       updateStatus("Authenticating...", "info");
