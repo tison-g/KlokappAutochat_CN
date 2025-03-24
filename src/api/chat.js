@@ -46,6 +46,7 @@ function getCurrentProxy() {
   }
   if (allProxies.length === 0) {
     log("No proxies found, using machine's default IP.");
+    // 未找到代理，使用机器的默认 IP
     return null;
   }
   if (currentProxyIndex >= allProxies.length) {
@@ -61,6 +62,7 @@ function switchToNextProxy() {
   }
   if (allProxies.length === 0) {
     log("No proxies available to switch, using machine's default IP.");
+    // 没有可切换的代理，使用机器的默认 IP
     return null;
   }
   currentProxyIndex = (currentProxyIndex + 1) % allProxies.length;
@@ -68,8 +70,10 @@ function switchToNextProxy() {
   try {
     const parsedUrl = new URL(proxyUrl);
     log(`Switched to proxy: ${parsedUrl.hostname}`);
+    // 切换到代理：
   } catch (err) {
     log(`Switched to proxy: ${proxyUrl}`);
+    // 切换到代理：
   }
   return proxyUrl;
 }
@@ -90,7 +94,9 @@ let selectedModel = null;
 function setSelectedModel(modelName) {
   selectedModel = modelName;
   log(`Selected model: ${modelName}`, "info");
+  // 选择的模型：
   logToFile(`Selected model: ${modelName}`);
+  // 选择的模型：
 }
 
 function getSelectedModel() {
@@ -106,10 +112,12 @@ function createThread() {
     created_at: new Date().toISOString(),
   };
   log(`New chat thread created: ${threadId}`, "success");
+  // 创建新的聊天线程：
   logToFile("New chat thread created", {
     threadId: threadId,
     createdAt: currentThread.created_at,
   });
+  // 创建新的聊天线程：
   return currentThread;
 }
 
@@ -127,9 +135,11 @@ async function verifyPointIncrease(beforePoints) {
         difference: afterPoints - beforePoints,
       }
     );
+    // 点数验证：点数增加/点数无变化
     return pointIncreased;
   } catch (error) {
     logToFile(`Error verifying points: ${error.message}`, { error: error.message }, false);
+    // 验证点数时出错：
     return false;
   }
 }
@@ -138,6 +148,7 @@ async function sendChatMessage(content) {
   try {
     if (!selectedModel) {
       throw new Error("No model selected. Please select a model first.");
+      // 未选择模型。请先选择一个模型。
     }
     if (!currentThread) {
       createThread();
@@ -147,8 +158,10 @@ async function sendChatMessage(content) {
       const pointData = await getUserPoints();
       beforePoints = pointData.points.inference;
       logToFile(`Points before chat: ${beforePoints}`);
+      // 聊天前的点数：
     } catch (pointError) {
       logToFile(`Failed to get points before chat: ${pointError.message}`, { error: pointError.message }, false);
+      // 聊天前获取点数失败：
     }
     const userMessage = { role: "user", content };
     currentThread.messages.push(userMessage);
@@ -159,6 +172,7 @@ async function sendChatMessage(content) {
       messageContent: content.substring(0, 100) + (content.length > 100 ? "..." : ""),
       messageLength: content.length,
     });
+    // 发送聊天消息：
     const chatPayload = {
       id: currentThread.id,
       title: currentThread.title || "",
@@ -168,6 +182,7 @@ async function sendChatMessage(content) {
       sources: [],
     };
     log(`Sending chat message to ${selectedModel}...`, "info");
+    // 发送聊天消息到 ${selectedModel}...
     let streamAborted = false;
     let aiResponse = "";
     const sendChatRequest = async () => {
@@ -214,6 +229,7 @@ async function sendChatMessage(content) {
         if (error.message.includes("stream") && error.message.includes("abort")) {
           streamAborted = true;
           logToFile("Stream aborted, will verify with points", { error: error.message });
+          // 流中断，将通过点数验证
           return { data: "", status: 200, headers: {} };
         }
         throw error;
@@ -222,19 +238,25 @@ async function sendChatMessage(content) {
     let response;
     try {
       response = await executeWithRetry(sendChatRequest, `Chat to ${selectedModel}`);
+      // 使用重试执行聊天到 ${selectedModel}
     } catch (error) {
       streamAborted = true;
       logToFile(`All retries failed, will verify with points: ${error.message}`, { error: error.message });
+      // 所有重试失败，将通过点数验证：
       response = { data: "", status: 0, headers: {} };
     }
     if (streamAborted) {
       log("Verifying chat with point increase...", "warning");
+      // 通过点数增加验证聊天...
       const pointVerified = await verifyPointIncrease(beforePoints);
       if (pointVerified) {
         log("Chat verified successfully through point increase!", "success");
+        // 通过点数增加成功验证聊天！
         aiResponse = "[Response received but stream was aborted. Chat verified through point increase]";
+        // [已收到响应，但流已中止。通过点数增加验证聊天]
       } else {
         throw new Error("Chat failed: Stream aborted and no point increase detected");
+        // 聊天失败：流已中止，未检测到点数增加
       }
     } else {
       if (typeof response.data === "string") {
@@ -252,17 +274,21 @@ async function sendChatMessage(content) {
           }
           if (!aiResponse && response.data.length > 0) {
             aiResponse = "[Response received but could not be parsed]";
+            // [已收到响应，但无法解析]
           }
         } catch (parseError) {
           logToFile("Error parsing streaming response", {
             error: parseError.message,
             responsePreview: response.data.substring(0, 500),
           }, false);
+          // 解析流式响应时出错：
           aiResponse = "[Response could not be parsed]";
+          // [响应无法解析]
         }
       }
       if (!aiResponse) {
         aiResponse = "Response received (streaming responses not fully implemented)";
+        // 收到响应（流式响应未完全实现）
       }
     }
     currentThread.messages.push({ role: "assistant", content: aiResponse });
@@ -274,6 +300,7 @@ async function sendChatMessage(content) {
       responseLength: aiResponse.length,
       streamAborted: streamAborted,
     });
+    // 收到 AI 响应：
     return aiResponse;
   } catch (error) {
     const errorMsg = `Error sending chat message: ${error.message}`;
