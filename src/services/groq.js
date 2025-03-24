@@ -5,7 +5,8 @@ const { readFile, fileExists, log } = require("../utils");
 let groqClient = null;
 
 /**
- * @returns {Object}
+ * 初始化并返回 Groq 客户端实例
+ * @returns {Object} 返回 Groq 客户端对象
  */
 function initGroqClient() {
   try {
@@ -21,22 +22,23 @@ function initGroqClient() {
 
     if (!apiKey) {
       throw new Error(
-        "Groq API key not found. Please create groq-api.key file or set GROQ_API_KEY env variable."
+        "未找到 Groq API 密钥。请创建 groq-api.key 文件或设置 GROQ_API_KEY 环境变量。"
       );
     }
 
     groqClient = new Groq({ apiKey });
-    log("Groq client initialized successfully", "success");
+    log("Groq 客户端初始化成功", "success");
 
     return groqClient;
   } catch (error) {
-    log(`Error initializing Groq client: ${error.message}`, "error");
+    log(`初始化 Groq 客户端时出错: ${error.message}`, "error");
     throw error;
   }
 }
 
 /**
- * @returns {Promise<string>}
+ * 生成用户消息
+ * @returns {Promise<string>} 返回生成的消息内容
  */
 async function generateUserMessage() {
   try {
@@ -47,11 +49,11 @@ async function generateUserMessage() {
         {
           role: "system",
           content:
-            "You are a helpful assistant. Generate a random, interesting question or prompt for an AI assistant. Keep it concise (max 2 sentences) and make it something that would lead to an engaging response.",
+            "您是一位有帮助的助手。生成一个随机的、有趣的问题或提示给 AI 助手。保持简洁（最多 2 句话），并且要能引发有趣的对话。[...]"
         },
         {
           role: "user",
-          content: "Generate a single interesting prompt.",
+          content: "生成一个有趣的提示。",
         },
       ],
       model: config.GROQ_MODEL,
@@ -59,8 +61,8 @@ async function generateUserMessage() {
 
     return completion.choices[0].message.content;
   } catch (error) {
-    log(`Error generating message with Groq: ${error.message}`, "error");
-    return "Hi there, can you tell me something interesting?";
+    log(`使用 Groq 生成消息时出错: ${error.message}`, "error");
+    return "你好，能告诉我一些有趣的事情吗？";
   }
 }
 
