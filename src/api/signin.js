@@ -48,6 +48,7 @@ async function authenticate(wallet) {
             };
 
             log(`[INFO] Authenticating for ${wallet.address}...`, "info");
+            // [信息] 正在为 ${wallet.address} 进行身份验证...
 
             const response = await axios.post(`${config.BASE_URL}/verify`, payload, {
                 headers: config.DEFAULT_HEADERS,
@@ -56,6 +57,7 @@ async function authenticate(wallet) {
 
             const { session_token } = response.data;
             log(`[SUCCESS] Token received for ${wallet.address}`, "success");
+            // [成功] 已收到 ${wallet.address} 的令牌
 
             const tokenPath = path.join(process.cwd(), "session-token.key");
             fs.appendFileSync(tokenPath, `${session_token}\n`);
@@ -63,17 +65,21 @@ async function authenticate(wallet) {
         } catch (error) {
             attempt++;
             log(`[ERROR] Attempt ${attempt} failed for ${wallet.address}: ${error.message}`, "error");
+            // [错误] 尝试 ${attempt} 为 ${wallet.address} 失败：${error.message}
             if (error.response) {
                 log(`[ERROR] Status: ${error.response.status}, Data:`, error.response.data, "error");
+                // [错误] 状态：${error.response.status}，数据：
             }
 
             if (attempt < MAX_RETRIES) {
                 log(`[INFO] Retrying for ${wallet.address} in ${RETRY_DELAY / 1000} seconds...`, "info");
+                // [信息] ${RETRY_DELAY / 1000} 秒后重试 ${wallet.address}...
                 await delay(RETRY_DELAY);
             }
         }
     }
     log(`[ERROR] All attempts failed for ${wallet.address}`, "error");
+    // [错误] 所有尝试均失败 ${wallet.address}
     return null;
 }
 
@@ -91,6 +97,7 @@ module.exports = {
 
         if (!privateKeys || privateKeys.length === 0) {
             log("[ERROR] No private keys provided", "error");
+            // [错误] 未提供私钥
             return tokens;
         }
 
@@ -102,6 +109,7 @@ module.exports = {
                     if (token) tokens.push(token);
                 } catch (error) {
                     log(`[ERROR] Invalid private key: ${error.message}`, "error");
+                    // [错误] 无效的私钥：${error.message}
                 }
             })
         );
