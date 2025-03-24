@@ -14,6 +14,7 @@ const {
 const pLimit = require("p-limit");
 
 // =========== PROXY IMPORTS & GLOBALS ===========
+// 代理导入和全局变量
 const { HttpsProxyAgent } = require("https-proxy-agent");
 const { HttpProxyAgent } = require("http-proxy-agent");
 
@@ -46,6 +47,7 @@ function getCurrentProxy() {
   }
   if (allProxies.length === 0) {
     log("No proxies found, using machine's default IP.");
+    // 未找到代理，使用机器的默认 IP
     return null;
   }
   if (currentProxyIndex >= allProxies.length) {
@@ -61,6 +63,7 @@ function switchToNextProxy() {
   }
   if (allProxies.length === 0) {
     log("No proxies available to switch, using machine's default IP.");
+    // 没有可切换的代理，使用机器的默认 IP
     return null;
   }
   currentProxyIndex = (currentProxyIndex + 1) % allProxies.length;
@@ -68,8 +71,10 @@ function switchToNextProxy() {
   try {
     const parsedUrl = new URL(proxyUrl);
     log(`Switched to proxy: ${parsedUrl.hostname}`);
+    // 切换到代理：
   } catch (err) {
     log(`Switched to proxy: ${proxyUrl}`);
+    // 切换到代理：
   }
  
   persistentAgent = null;
@@ -88,6 +93,7 @@ function getProxyAgent(targetUrl) {
   return persistentAgent;
 }
 // =========== END PROXY LOGIC ===========
+// 结束代理逻辑
 
 const SESSION_TOKEN_PATH = path.join(process.cwd(), "session-token.key");
 
@@ -143,7 +149,9 @@ function readAllSessionTokensFromFile() {
 async function verifyToken(token) {
   try {
     log("Verifying token validity...", "info");
+    // 验证令牌有效性...
     logToFile("Verifying token validity");
+    // 验证令牌有效性
 
     const headers = {
       ...config.DEFAULT_HEADERS,
@@ -172,9 +180,12 @@ async function verifyToken(token) {
     };
 
     return await executeWithRetry(verifyRequest, "Token verification");
+    // 使用重试执行验证令牌
   } catch (error) {
     log(`Token verification failed: ${error.message}`, "warning");
+    // 令牌验证失败
     logToFile("Token verification failed", { error: error.message });
+    // 令牌验证失败
     return false;
   }
 }
@@ -182,37 +193,48 @@ async function verifyToken(token) {
 async function verifyAndCleanupTokens() {
   try {
     log("Verifying and cleaning up tokens...", "info");
+    // 验证和清理令牌...
     logToFile("Starting token verification and cleanup");
+    // 开始令牌验证和清理
 
     const tokens = readAllSessionTokensFromFile();
 
     if (tokens.length === 0) {
       log("No tokens found to verify", "warning");
+      // 没有找到要验证的令牌
       return 0;
     }
 
     log(`Verifying ${tokens.length} tokens...`, "info");
+    // 验证 ${tokens.length} 个令牌...
 
     // Khởi tạo p-limit để giới hạn số lượng luồng song song (có thể điều chỉnh số luồng này)
     const limit = pLimit(config.THREADS || 10); // Chạy tối đa 5 luồng song song
+    // 创建 p-limit 以限制并发线程数（可以调整线程数）
+    // 运行最多 5 个并发线程
 
     // Tạo các promise để kiểm tra từng token song song
     const promises = tokens.map((token, index) =>
       limit(async () => {
         log(`Verifying token ${index + 1}/${tokens.length}...`, "info");
+        // 验证令牌 ${index + 1}/${tokens.length}...
 
         const isValid = await verifyToken(token);
 
         if (isValid) {
           log(`Token ${index + 1}/${tokens.length} is valid`, "success");
+          // 令牌 ${index + 1}/${tokens.length} 有效
         } else {
           log(`Token ${index + 1}/${tokens.length} is invalid or expired`, "warning");
+          // 令牌 ${index + 1}/${tokens.length} 无效或已过期
         }
       })
     );
 
     // Chờ đợi tất cả các promise hoàn thành và lọc ra các token hợp lệ
     const validTokens = (await Promise.all(promises)).filter(Boolean); // Loại bỏ các null (token không hợp lệ)
+    // 等待所有 promise 完成并过滤出有效令牌
+    // 移除所有 null 值（无效令牌）
 
     // Ghi lại các token hợp lệ vào file
     fs.writeFileSync(
@@ -224,10 +246,12 @@ async function verifyAndCleanupTokens() {
       `Token verification complete. ${validTokens.length}/${tokens.length} tokens are valid`,
       validTokens.length > 0 ? "success" : "warning"
     );
+    // 令牌验证完成。${validTokens.length}/${tokens.length} 个令牌有效
     logToFile("Token verification and cleanup completed", {
       totalTokens: tokens.length,
       validTokens: validTokens.length,
     });
+    // 令牌验证和清理完成
 
     allTokens = validTokens;
     currentTokenIndex = 0;
@@ -235,7 +259,9 @@ async function verifyAndCleanupTokens() {
     return validTokens.length;
   } catch (error) {
     log(`Error during token verification: ${error.message}`, "error");
+    // 令牌验证期间出错
     logToFile("Token verification failed", { error: error.message });
+    // 令牌验证失败
     return 0;
   }
 }
@@ -273,11 +299,13 @@ function switchToNextToken() {
     `Switched to account ${currentTokenIndex + 1}/${allTokens.length}`,
     "info"
   );
+  // 切换到账号 ${currentTokenIndex + 1}/${allTokens.length}
   logToFile(`Switched to next token`, {
     newIndex: currentTokenIndex,
     totalTokens: allTokens.length,
     tokenPreview: sessionToken.substring(0, 10) + "...",
   });
+  // 切换到下一个令牌
 
   cachedUserInfo = null;
 
@@ -287,6 +315,7 @@ function switchToNextToken() {
 function getAuthHeaders(headers = {}) {
   if (!sessionToken) {
     throw new Error("Not authenticated. Please login first.");
+    // 未认证。请先登录。
   }
 
   return {
@@ -321,10 +350,12 @@ async function executeWithRetry(requestFn, requestName, retryCount = 0) {
         },
         false
       );
+      // 当前令牌出现验证错误，切换到下一个令牌
 
       switchToNextToken();
 
       return executeWithRetry(requestFn, `${requestName} (with new token)`, 0);
+      // 使用新令牌重试执行
     }
 
     if ((isNetworkError || isServerError) && retryCount < MAX_RETRIES) {
@@ -342,6 +373,7 @@ async function executeWithRetry(requestFn, requestName, retryCount = 0) {
         },
         false
       );
+      // ${requestName} 失败 (${error.message})。在 ${delay / 1000}s 后重试 (${nextRetryCount}/${MAX_RETRIES})...
 
       await new Promise((resolve) => setTimeout(resolve, delay));
 
@@ -355,7 +387,9 @@ async function executeWithRetry(requestFn, requestName, retryCount = 0) {
 async function login(switchToken = false) {
   try {
     log("Starting login with session token...", "info");
+    // 开始使用会话令牌登录...
     logToFile("Starting login with session token");
+    // 开始使用会话令牌登录
 
     if (switchToken || !sessionToken) {
       if (switchToken) {
@@ -371,14 +405,18 @@ async function login(switchToken = false) {
       );
       log(error.message, "error");
       logToFile("Login failed - no token file or empty file");
+      // 登录失败 - 没有令牌文件或文件为空
       throw error;
     }
 
     log("Session token loaded", "info");
+    // 会话令牌已加载
     log("Validating session token...", "info");
+    // 验证会话令牌...
 
     const validateRequest = async () => {
       log("Testing session token validity...", "info");
+      // 测试会话令牌有效性...
 
       const agent = getProxyAgent(config.BASE_URL);
       const axiosConfig = { headers: getAuthHeaders() };
@@ -398,6 +436,7 @@ async function login(switchToken = false) {
 
     try {
       await executeWithRetry(validateRequest, "Token validation");
+      // 使用重试执行令牌验证
 
       log(
         `Session token is valid! Account ${currentTokenIndex + 1}/${
@@ -405,17 +444,20 @@ async function login(switchToken = false) {
         }`,
         "success"
       );
+      // 会话令牌有效！账号 ${currentTokenIndex + 1}/${allTokens.length}
       logToFile("Login successful with session token", {
         userId: cachedUserInfo.user_id,
         authProvider: cachedUserInfo.auth_provider,
         tokenIndex: currentTokenIndex,
         totalTokens: allTokens.length,
       });
+      // 使用会话令牌登录成功
 
       return sessionToken;
     } catch (error) {
       if (allTokens.length > 1) {
         log("Token invalid, trying next token...", "warning");
+        // 令牌无效，尝试下一个令牌...
         switchToNextToken();
         return login(false);
       }
@@ -425,7 +467,7 @@ async function login(switchToken = false) {
     const errorMsg = `Login failed: ${error.message}`;
     log(errorMsg, "error");
     logToFile("Login failed", { error: error.message });
-
+    // 登录失败
     sessionToken = null;
     throw error;
   }
@@ -434,12 +476,15 @@ async function login(switchToken = false) {
 async function getUserInfo(useCache = false) {
   if (useCache && cachedUserInfo) {
     logToFile("Returning user info from cache");
+    // 从缓存返回用户信息
     return cachedUserInfo;
   }
 
   try {
     log("Getting user information...", "info");
+    // 获取用户信息...
     logToFile("Getting user information");
+    // 获取用户信息
 
     const headers = getAuthHeaders();
 
@@ -465,7 +510,9 @@ async function getUserInfo(useCache = false) {
     };
 
     const userData = await executeWithRetry(getUserRequest, "Get user info");
+    // 使用重试执行获取用户信息
     log("User info retrieved successfully", "success");
+    // 用户信息检索成功
     cachedUserInfo = userData;
     return userData;
   } catch (error) {
@@ -508,6 +555,7 @@ async function makeApiRequest(method, endpoint, data = null, additionalHeaders =
     };
 
     return await executeWithRetry(apiRequest, `${method} ${endpoint}`);
+    // 使用重试执行 API 请求
   } catch (error) {
     const errorMsg = `API request failed (${method} ${endpoint}): ${error.message}`;
     log(errorMsg, "error");
